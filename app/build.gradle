@@ -1,0 +1,44 @@
+plugins { id 'com.android.application' }
+
+def runNo = (System.getenv('GITHUB_RUN_NUMBER') ?: '1').toInteger()
+
+android {
+    namespace 'jp.nsn.gijiroku'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'jp.nsn.gijiroku'
+        minSdk 29
+        targetSdk 35
+        versionCode runNo
+        versionName "1." + runNo
+    }
+    signingConfigs {
+        release {
+            storeFile file(System.getenv('KEYSTORE_PATH') ?: 'release.jks')
+            storePassword System.getenv('KEYSTORE_PASSWORD') ?: ''
+            keyAlias System.getenv('KEY_ALIAS') ?: 'gijiroku'
+            keyPassword System.getenv('KEYSTORE_PASSWORD') ?: ''
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.12.1'
+}
+
+// 画面はWeb版と同じHTMLを使う
+tasks.register('copyWeb', Copy) {
+    from "${rootDir}/web/index.html"
+    into "${projectDir}/src/main/assets"
+}
+preBuild.dependsOn copyWeb
