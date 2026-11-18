@@ -23,7 +23,8 @@ android {
     buildTypes {
         release {
             minifyEnabled false
-            signingConfig signingConfigs.release
+            // 署名鍵（Secrets）があればそれで署名、なければ仮の鍵（debug）で署名
+            signingConfig System.getenv('KEYSTORE_PATH') ? signingConfigs.release : signingConfigs.debug
         }
     }
     compileOptions {
