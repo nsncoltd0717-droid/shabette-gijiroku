@@ -1,4 +1,4 @@
-name: Android APK
+name: Build (Android APK + Web)
 
 on:
   push:
@@ -54,3 +54,14 @@ jobs:
           gh release create "v1.${GITHUB_RUN_NUMBER}" out/*.apk \
             --title "しゃべって議事録 1.${GITHUB_RUN_NUMBER}" \
             --notes "Android版 APK（自動ビルド）。端末で開いてインストールしてください。"
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish Web version (gh-pages)
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ github.token }}
+          publish_dir: ./web
+          publish_branch: gh-pages

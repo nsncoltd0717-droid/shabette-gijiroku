@@ -16,3 +16,9 @@
 ## 署名
 
 ビルドにはリポジトリの Secrets に `KEYSTORE_BASE64`（署名鍵をbase64にしたもの）と `KEYSTORE_PASSWORD` が必要。同じ鍵で署名し続けないと上書き更新できないので、鍵は別途安全に保管する。
+
+## Web版（iPhone・パソコン）
+
+https://nsncoltd0717-droid.github.io/shabette-gijiroku/
+
+`src/app.html` を編集したら `python3 scripts/build_web.py` で `web/index.html` を作り直して push する。`main` への push で gh-pages にも自動公開される。
