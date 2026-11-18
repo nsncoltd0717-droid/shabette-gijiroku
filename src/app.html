@@ -124,10 +124,12 @@ textarea { resize: vertical; line-height: 1.75; }
 .history[hidden] { display: none; }
 .btn { display: inline-flex; align-items: center; text-decoration: none; box-sizing: border-box; }
 .btn:hover { border-color: var(--accent); }
+a.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .hist-item { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
 .hist-item .meta { flex: 1; min-width: 0; }
 .hist-item .t { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hist-item .d { font-size: 12px; color: var(--muted); font-family: var(--font-mono); }
+.badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px; margin-right: 8px; background: color-mix(in srgb, var(--rec) 18%, transparent); color: var(--rec); vertical-align: 2px; }
 .empty { color: var(--muted); font-size: 14px; margin: 0; }
 .confirm { display: flex; gap: 6px; align-items: center; font-size: 13px; }
 </style>
@@ -146,15 +148,11 @@ textarea { resize: vertical; line-height: 1.75; }
   <section class="card" id="settings" hidden aria-labelledby="setHead">
     <h2 id="setHead">設定 <small id="verText"></small></h2>
     <p class="empty" id="modeText"></p>
-    <div id="keyBox" class="fields">
-      <label>Claude APIキー（claude.ai以外で開くときに必要）<input id="apiKey" type="password" autocomplete="off" placeholder="sk-ant-…"></label>
-      <label style="align-self:end;display:flex;gap:8px;align-items:center"><input id="keepKey" type="checkbox" style="width:auto">この端末に記憶する</label>
-    </div>
     <p class="status" id="setStatus"></p>
   </section>
 
   <section class="card history" id="history" hidden aria-label="保存した議事録">
-    <h2>保存した議事録 <small>このアカウントだけが見られます</small></h2>
+    <h2>保存した議事録 <small id="histNote">このアカウントだけが見られます</small></h2>
     <div id="histList" class="history"><p class="empty">読み込み中…</p></div>
   </section>
 
@@ -187,7 +185,8 @@ textarea { resize: vertical; line-height: 1.75; }
         <textarea id="transcript" aria-label="文字起こし" placeholder="マイクで話すか、ここに入力・貼り付けしてください。"></textarea>
         <div class="row">
           <button id="makeBtn" class="primary" type="button">議事録を作る</button>
-          <a id="appBtn" class="btn" href="https://claude.ai/new" target="_blank" rel="noopener" hidden>Claudeアプリで作る（APIキー不要）</a>
+          <a id="appBtn" class="btn primary" href="https://claude.ai/new" target="_blank" rel="noopener" hidden>Claudeアプリで議事録を作る</a>
+          <a id="pcBtn" class="btn" href="https://claude.ai/artifact/L14F1GocNSTW5YPMwwtBXv" target="_blank" rel="noopener" hidden>PCと共有する</a>
           <button id="stopBtn" type="button" hidden>作成を止める</button>
           <button id="clearTr" class="link" type="button">文字起こしを消す</button>
           <span class="count" id="trCount">0 文字</span>
@@ -215,7 +214,7 @@ textarea { resize: vertical; line-height: 1.75; }
 <script>
 'use strict';
 const $ = id => document.getElementById(id);
-const APP_VERSION = '1.1（2026-11-18）';
+const APP_VERSION = '1.2（2026-11-18）';
 const API_MODEL = 'claude-sonnet-5-5';
 const inClaude = !!(window.claude && window.claude.use);
 const AA = window.AndroidApp || null;   // Android版アプリのときだけ存在
@@ -372,37 +371,6 @@ ${JSON.stringify(info, null, 1)}
 # 文字起こし
 ${$('transcript').value.slice(0, 120000)}`;
 }
-function apiKey() { return $('apiKey').value.trim(); }
-async function claudeApi(prompt, signal, onText) {
-  let res;
-  try {
-    res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST', signal,
-      headers: { 'content-type': 'application/json', 'x-api-key': apiKey(), 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-      body: JSON.stringify({ model: API_MODEL, max_tokens: 8000, stream: true, messages: [{ role: 'user', content: prompt }] })
-    });
-  } catch (e) { throw e?.name === 'AbortError' ? { code: 'cancelled' } : { userMsg: 'Claudeに接続できませんでした。インターネット接続を確認してください。' }; }
-  if (!res.ok) throw { userMsg: res.status === 401 ? 'APIキーが正しくありません。「設定」で確認してください。' : res.status === 429 ? '利用上限か混雑中です。少し待ってからお試しください。' : 'Claudeでエラーが起きました（' + res.status + '）。' };
-  const reader = res.body.getReader(), dec = new TextDecoder();
-  let buf = '', text = '', stop = '';
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      const lines = buf.split('\n'); buf = lines.pop();
-      for (const line of lines) {
-        if (!line.startsWith('data:')) continue;
-        let ev; try { ev = JSON.parse(line.slice(5)); } catch { continue; }
-        if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta') { text += ev.delta.text; onText({ text }); }
-        else if (ev.type === 'message_delta') stop = ev.delta?.stop_reason || stop;
-        else if (ev.type === 'error') throw { userMsg: 'Claudeでエラーが起きました。もう一度お試しください。', text };
-      }
-    }
-  } catch (e) { if (e?.name === 'AbortError') throw { code: 'cancelled', text }; throw e; }
-  if (!text) throw { userMsg: 'Claudeから文章を受け取れませんでした。' };
-  return { text, truncated: stop === 'max_tokens' };
-}
 async function makeMinutes() {
   $('remakeConfirm').hidden = true;
   ctl = new AbortController();
@@ -411,9 +379,7 @@ async function makeMinutes() {
   const before = $('minutes').value;
   try {
     const onText = ({ text }) => { $('minutes').value = text; };
-    const { truncated } = sample
-      ? await sample(buildPrompt(), { signal: ctl.signal, cache: false, onText })
-      : await claudeApi(buildPrompt(), ctl.signal, onText);
+    const { truncated } = await sample(buildPrompt(), { signal: ctl.signal, cache: false, onText });
     keepDraft();
     setStatus($('makeStatus'), truncated ? '長すぎて途中で終わりました。文字起こしを分けてお試しください。' : '議事録ができました。内容を確認して保存してください。', truncated ? 'err' : 'ok');
   } catch (e) {
@@ -430,19 +396,29 @@ async function makeMinutes() {
   }
 }
 $('makeBtn').onclick = () => {
-  if (!sample && !apiKey()) { setStatus($('makeStatus'), 'APIキーがない場合は「Claudeアプリで作る」を押してください。キーがあれば「設定」に入力すると、この画面で議事録まで作れます。', 'err'); return; }
   if (!$('transcript').value.trim()) { setStatus($('makeStatus'), '先に文字起こしを入力してください。', 'err'); return; }
   if ($('minutes').value.trim()) { $('remakeConfirm').hidden = false; return; }
   makeMinutes();
 };
 $('remakeYes').onclick = makeMinutes;
+function copyText(t) {
+  if (AA) { AA.copy(t); return; }
+  try { navigator.clipboard.writeText(t).catch(() => {}); } catch {}
+}
+/* PCと共有：文字起こしをコピーしてclaude.ai版を開く（そこで貼り付けて保存するとPCの一覧に出る） */
+$('pcBtn').addEventListener('click', ev => {
+  if (!$('transcript').value.trim()) { ev.preventDefault(); setStatus($('makeStatus'), '先に文字起こしを入力してください。', 'err'); return; }
+  const info = ['会議名：' + $('title').value, '開催日：' + $('date').value, '場所：' + $('place').value, '出席者：' + $('attendees').value].join('\n');
+  copyText('【会議情報】\n' + info + '\n【文字起こし】\n' + $('transcript').value);
+  setStatus($('makeStatus'), 'コピーしました。開いた画面の「文字起こし」欄を長押しして「ペースト」し、「保存」を押すと、PCの「保存した議事録」に届きます。', 'ok');
+});
 /* APIキーがないとき：文字起こしと指示文をコピーして、Claudeアプリ（claude.ai）で議事録にする */
 $('appBtn').addEventListener('click', ev => {
   if (!$('transcript').value.trim()) { ev.preventDefault(); setStatus($('makeStatus'), '先に文字起こしを入力してください。', 'err'); return; }
   const prompt = buildPrompt();
   if (prompt.length < 6000) $('appBtn').href = 'https://claude.ai/new?q=' + encodeURIComponent(prompt);
   else $('appBtn').href = 'https://claude.ai/new';
-  try { navigator.clipboard.writeText(prompt).catch(() => {}); } catch {}
+  copyText(prompt);
   setStatus($('makeStatus'), prompt.length < 6000
     ? 'Claudeを開きました。入力欄に文字起こしが入っていればそのまま送信、空なら長押しして「ペースト」してから送信してください。'
     : '文字起こしをコピーしてClaudeを開きました。入力欄を長押しして「ペースト」し、送信してください。', 'ok');
@@ -564,6 +540,8 @@ function renderHistory() {
     const t = document.createElement('div'); t.className = 't'; t.textContent = v.title || '（会議名なし）';
     const s = document.createElement('div'); s.className = 'd'; s.textContent = (v.date || '') + (v.place ? '　' + v.place : '');
     meta.append(t, s);
+    const waiting = !String(v.minutes || '').trim();
+    if (waiting) { const b = document.createElement('span'); b.className = 'badge'; b.textContent = '議事録待ち'; t.prepend(b); }
     const open = document.createElement('button'); open.type = 'button'; open.textContent = '開く';
     open.onclick = () => {
       FIELDS.forEach(f => $(f).value = v[f] || ''); currentId = d.id; keepDraft();
@@ -579,7 +557,13 @@ function renderHistory() {
       n.onclick = () => c.replaceWith(del);
       c.append(y, n); del.replaceWith(c);
     };
-    row.append(meta, open, del); box.append(row);
+    row.append(meta, open);
+    if (waiting && sample) {
+      const mk = document.createElement('button'); mk.type = 'button'; mk.className = 'primary'; mk.textContent = '議事録を作る';
+      mk.onclick = () => { open.onclick(); makeMinutes().then(() => { if ($('minutes').value.trim()) $('saveBtn').click(); }); };
+      row.append(mk);
+    }
+    row.append(del); box.append(row);
   }
 }
 $('histBtn').onclick = () => {
@@ -590,11 +574,7 @@ $('histBtn').onclick = () => {
 
 /* ---------- 設定・更新 ---------- */
 $('verText').textContent = 'バージョン ' + (AA ? AA.versionName() + '（Android版）' : APP_VERSION);
-try { const k = localStorage.getItem('gijiroku-apikey'); if (k) { $('apiKey').value = k; $('keepKey').checked = true; } } catch {}
-function saveKey() {
-  try { if ($('keepKey').checked && apiKey()) localStorage.setItem('gijiroku-apikey', apiKey()); else localStorage.removeItem('gijiroku-apikey'); } catch {}
-}
-$('apiKey').addEventListener('change', saveKey); $('keepKey').addEventListener('change', saveKey);
+try { localStorage.removeItem('gijiroku-apikey'); } catch {}
 function openSettings(show) {
   $('settings').hidden = !show; $('setBtn').setAttribute('aria-expanded', String(show));
   if (show) $('settings').scrollIntoView({ block: 'nearest' });
@@ -649,16 +629,20 @@ $('updBtn').onclick = () => {
   }
   if (mcp) $('driveBtn').hidden = false;
   $('modeText').textContent = sample ? 'claude.aiで開いています。議事録作成はあなたのClaudeアカウントで行われ、APIキーは不要です。保存した議事録はあなたのアカウントだけが見られます。'
-    : AA ? 'Android版です。議事録作成にはClaude APIキーが必要です。保存した議事録はこの端末に残ります。「ファイルに書き出す」はダウンロードフォルダに保存します。'
-    : '単体のファイルとして開いています。議事録作成にはClaude APIキーが必要です。保存した議事録はこの端末のブラウザに残ります。';
-  if (sample) $('keyBox').hidden = true;
-  else $('appBtn').hidden = false;
+    : (AA ? 'Android版です。' : 'Web版です。') + '議事録は「Claudeアプリで議事録を作る」で作ります（APIキー不要）。「PCと共有する」を使うと、PCのclaude.ai版で議事録を作り、その結果をiPhoneでも見られます。';
+  if (sample) $('histNote').textContent = 'このアカウントだけが見られます。iPhoneとPCで同じ一覧が出ます。「議事録待ち」はPCで「議事録を作る」を押すと完成し、iPhoneにも反映されます。';
+  if (!sample) { $('makeBtn').hidden = true; $('appBtn').hidden = false; $('pcBtn').hidden = false; }
   if (db) {
     const user = await use('user');
     try { uid = user ? await user.id() : null; } catch { uid = null; }
     if (uid) {
       histCol().orderBy('updatedAt', 'desc').limit(100).onSnapshot(
-        snap => { histDocs = snap.docs; if (!$('history').hidden) renderHistory(); },
+        snap => {
+          histDocs = snap.docs;
+          const n = histDocs.filter(d => !String((d.data() || {}).minutes || '').trim()).length;
+          $('histBtn').textContent = n ? '保存した議事録（議事録待ち ' + n + '）' : '保存した議事録';
+          if (!$('history').hidden) renderHistory();
+        },
         () => { histDocs = []; });
     }
   }
