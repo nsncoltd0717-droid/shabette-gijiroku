@@ -122,6 +122,8 @@ textarea { resize: vertical; line-height: 1.75; }
 /* 履歴 */
 .history { display: grid; gap: 8px; }
 .history[hidden] { display: none; }
+.btn { display: inline-flex; align-items: center; text-decoration: none; box-sizing: border-box; }
+.btn:hover { border-color: var(--accent); }
 .hist-item { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
 .hist-item .meta { flex: 1; min-width: 0; }
 .hist-item .t { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -185,6 +187,7 @@ textarea { resize: vertical; line-height: 1.75; }
         <textarea id="transcript" aria-label="文字起こし" placeholder="マイクで話すか、ここに入力・貼り付けしてください。"></textarea>
         <div class="row">
           <button id="makeBtn" class="primary" type="button">議事録を作る</button>
+          <a id="appBtn" class="btn" href="https://claude.ai/new" target="_blank" rel="noopener" hidden>Claudeアプリで作る（APIキー不要）</a>
           <button id="stopBtn" type="button" hidden>作成を止める</button>
           <button id="clearTr" class="link" type="button">文字起こしを消す</button>
           <span class="count" id="trCount">0 文字</span>
@@ -427,12 +430,23 @@ async function makeMinutes() {
   }
 }
 $('makeBtn').onclick = () => {
-  if (!sample && !apiKey()) { setStatus($('makeStatus'), '「設定」でClaude APIキーを入力してください（claude.aiで開いた場合は不要です）。', 'err'); openSettings(true); return; }
+  if (!sample && !apiKey()) { setStatus($('makeStatus'), 'APIキーがない場合は「Claudeアプリで作る」を押してください。キーがあれば「設定」に入力すると、この画面で議事録まで作れます。', 'err'); return; }
   if (!$('transcript').value.trim()) { setStatus($('makeStatus'), '先に文字起こしを入力してください。', 'err'); return; }
   if ($('minutes').value.trim()) { $('remakeConfirm').hidden = false; return; }
   makeMinutes();
 };
 $('remakeYes').onclick = makeMinutes;
+/* APIキーがないとき：文字起こしと指示文をコピーして、Claudeアプリ（claude.ai）で議事録にする */
+$('appBtn').addEventListener('click', ev => {
+  if (!$('transcript').value.trim()) { ev.preventDefault(); setStatus($('makeStatus'), '先に文字起こしを入力してください。', 'err'); return; }
+  const prompt = buildPrompt();
+  if (prompt.length < 6000) $('appBtn').href = 'https://claude.ai/new?q=' + encodeURIComponent(prompt);
+  else $('appBtn').href = 'https://claude.ai/new';
+  try { navigator.clipboard.writeText(prompt).catch(() => {}); } catch {}
+  setStatus($('makeStatus'), prompt.length < 6000
+    ? 'Claudeを開きました。入力欄に文字起こしが入っていればそのまま送信、空なら長押しして「ペースト」してから送信してください。'
+    : '文字起こしをコピーしてClaudeを開きました。入力欄を長押しして「ペースト」し、送信してください。', 'ok');
+});
 $('remakeNo').onclick = () => { $('remakeConfirm').hidden = true; };
 $('stopBtn').onclick = () => ctl?.abort();
 $('clearTr').onclick = () => { $('clearConfirm').hidden = false; };
@@ -638,6 +652,7 @@ $('updBtn').onclick = () => {
     : AA ? 'Android版です。議事録作成にはClaude APIキーが必要です。保存した議事録はこの端末に残ります。「ファイルに書き出す」はダウンロードフォルダに保存します。'
     : '単体のファイルとして開いています。議事録作成にはClaude APIキーが必要です。保存した議事録はこの端末のブラウザに残ります。';
   if (sample) $('keyBox').hidden = true;
+  else $('appBtn').hidden = false;
   if (db) {
     const user = await use('user');
     try { uid = user ? await user.id() : null; } catch { uid = null; }
